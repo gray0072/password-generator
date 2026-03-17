@@ -6,6 +6,7 @@ import {
   Checkbox,
   Container,
   FormControlLabel,
+  IconButton,
   LinearProgress,
   List,
   ListItem,
@@ -21,6 +22,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import LightModeIcon from '@mui/icons-material/LightMode'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
 import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness'
+import GitHubIcon from '@mui/icons-material/GitHub'
 import { useThemeMode } from './App'
 
 type PasswordFormModel = {
@@ -173,7 +175,14 @@ export default function PasswordForm() {
       <Box component="form" onSubmit={handleSubmit(updatePasswords)} sx={{ py: 4 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h4">Password generator</Typography>
-          <ThemeToggle />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ThemeToggle />
+            <Tooltip title="GitHub">
+              <IconButton size="small" component="a" href="https://github.com/gray0072/password-generator" target="_blank" rel="noopener noreferrer">
+                <GitHubIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
 
         <Box sx={{ mb: 3 }}>
