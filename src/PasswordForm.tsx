@@ -11,10 +11,17 @@ import {
   ListItem,
   Slider,
   Stack,
+  ToggleButton,
+  ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import CheckIcon from '@mui/icons-material/Check'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import LightModeIcon from '@mui/icons-material/LightMode'
+import DarkModeIcon from '@mui/icons-material/DarkMode'
+import SettingsBrightnessIcon from '@mui/icons-material/SettingsBrightness'
+import { useThemeMode } from './App'
 
 type PasswordFormModel = {
   passwordLength: number
@@ -47,9 +54,7 @@ function loadSettings(): PasswordFormModel {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return { ...DEFAULT_VALUES, ...JSON.parse(raw) }
-  } catch {
-    // ignore
-  }
+  } catch { /* ignore */ }
   return DEFAULT_VALUES
 }
 
@@ -60,16 +65,11 @@ function saveSettings(values: PasswordFormModel) {
 function generatePassword(config: PasswordFormModel): string {
   const activeGroups = (Object.keys(GROUPS) as GroupKey[]).filter(k => config[k])
   if (activeGroups.length === 0) return ''
-
   const pool = activeGroups.flatMap(k => GROUPS[k])
   const length = Number(config.passwordLength)
-
-  // Keep regenerating until every active group is represented
   for (;;) {
     const chars = Array.from({ length }, () => pool[Math.floor(Math.random() * pool.length)])
-    const valid = activeGroups.every(group =>
-      chars.some(c => (GROUPS[group] as string[]).includes(c))
-    )
+    const valid = activeGroups.every(g => chars.some(c => (GROUPS[g] as string[]).includes(c)))
     if (valid) return chars.join('')
   }
 }
@@ -78,7 +78,6 @@ function generatePasswords(config: PasswordFormModel): string[] {
   return Array.from({ length: PASSWORDS_COUNT }, () => generatePassword(config))
 }
 
-/** Entropy in bits: length * log2(poolSize), capped for display purposes */
 function calcEntropy(config: PasswordFormModel): number {
   const activeGroups = (Object.keys(GROUPS) as GroupKey[]).filter(k => config[k])
   const poolSize = activeGroups.reduce((sum, k) => sum + GROUPS[k].length, 0)
@@ -86,19 +85,15 @@ function calcEntropy(config: PasswordFormModel): number {
   return Number(config.passwordLength) * Math.log2(poolSize)
 }
 
-/** Returns a CSS color string on red→yellow→green gradient, 0..128 bits → 0..100% */
 function entropyColor(bits: number): string {
-  const pct = Math.min(bits / 128, 1) // 128 bits = full green
-  // interpolate HSL: 0 (red) → 120 (green)
-  const hue = Math.round(pct * 120)
-  return `hsl(${hue}, 80%, 42%)`
+  const pct = Math.min(bits / 128, 1)
+  return `hsl(${Math.round(pct * 120)}, 80%, 42%)`
 }
 
 function StrengthBar({ config }: { config: PasswordFormModel }) {
   const bits = calcEntropy(config)
   const pct = Math.min((bits / 128) * 100, 100)
   const color = entropyColor(bits)
-
   return (
     <Box sx={{ mt: 0.5 }}>
       <LinearProgress
@@ -107,7 +102,7 @@ function StrengthBar({ config }: { config: PasswordFormModel }) {
         sx={{
           height: 6,
           borderRadius: 3,
-          bgcolor: 'grey.200',
+          bgcolor: 'action.hover',
           '& .MuiLinearProgress-bar': { bgcolor: color, borderRadius: 3 },
         }}
       />
@@ -115,6 +110,29 @@ function StrengthBar({ config }: { config: PasswordFormModel }) {
         Quality: {Math.round(bits)} bits
       </Typography>
     </Box>
+  )
+}
+
+function ThemeToggle() {
+  const { mode, setMode } = useThemeMode()
+  return (
+    <ToggleButtonGroup
+      value={mode}
+      exclusive
+      size="small"
+      onChange={(_, val) => { if (val) setMode(val) }}
+      aria-label="theme"
+    >
+      <ToggleButton value="light" aria-label="light">
+        <Tooltip title="Light"><LightModeIcon fontSize="small" /></Tooltip>
+      </ToggleButton>
+      <ToggleButton value="system" aria-label="system">
+        <Tooltip title="System"><SettingsBrightnessIcon fontSize="small" /></Tooltip>
+      </ToggleButton>
+      <ToggleButton value="dark" aria-label="dark">
+        <Tooltip title="Dark"><DarkModeIcon fontSize="small" /></Tooltip>
+      </ToggleButton>
+    </ToggleButtonGroup>
   )
 }
 
@@ -128,10 +146,7 @@ export default function PasswordForm() {
 
   const updatePasswords = () => setPasswords(generatePasswords(getValues()))
 
-  // Restore settings on mount (in case of first render with localStorage values)
-  useEffect(() => {
-    reset(loadSettings())
-  }, [])
+  useEffect(() => { reset(loadSettings()) }, [])
 
   useEffect(() => {
     const subscription = watch((values) => {
@@ -147,20 +162,19 @@ export default function PasswordForm() {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text)
-    setCopiedPasswords((prev) => ({ ...prev, [text]: true }))
+    setCopiedPasswords(prev => ({ ...prev, [text]: true }))
     setTimeout(() => {
-      setCopiedPasswords((prev) => {
-        const next = { ...prev }
-        delete next[text]
-        return next
-      })
+      setCopiedPasswords(prev => { const n = { ...prev }; delete n[text]; return n })
     }, 2000)
   }
 
   return (
     <Container maxWidth="sm">
       <Box component="form" onSubmit={handleSubmit(updatePasswords)} sx={{ py: 4 }}>
-        <Typography variant="h4" gutterBottom>Password generator</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h4">Password generator</Typography>
+          <ThemeToggle />
+        </Box>
 
         <Box sx={{ mb: 3 }}>
           <Typography gutterBottom>Length: {passwordLength}</Typography>
