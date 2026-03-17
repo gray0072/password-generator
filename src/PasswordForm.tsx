@@ -1,145 +1,234 @@
-import React, { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useEffect, useState } from 'react'
+import { useForm, Controller } from 'react-hook-form'
+import {
+  Box,
+  Button,
+  Checkbox,
+  Container,
+  FormControlLabel,
+  LinearProgress,
+  List,
+  ListItem,
+  Slider,
+  Stack,
+  Typography,
+} from '@mui/material'
+import CheckIcon from '@mui/icons-material/Check'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+
+type PasswordFormModel = {
+  passwordLength: number
+  useLowerCase: boolean
+  useUpperCase: boolean
+  useDigits: boolean
+  useSpecial: boolean
+}
+
+const STORAGE_KEY = 'password-generator-settings'
+const PASSWORDS_COUNT = 5
+const GROUPS = {
+  useLowerCase: 'abcdefghijklmnopqrstuvwxyz'.split(''),
+  useUpperCase: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''),
+  useDigits: '0123456789'.split(''),
+  useSpecial: '!@#$%^&*()_+=-|\\/{}[]<>'.split(''),
+} as const
+
+type GroupKey = keyof typeof GROUPS
+
+const DEFAULT_VALUES: PasswordFormModel = {
+  passwordLength: 20,
+  useLowerCase: true,
+  useUpperCase: true,
+  useDigits: true,
+  useSpecial: true,
+}
+
+function loadSettings(): PasswordFormModel {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return { ...DEFAULT_VALUES, ...JSON.parse(raw) }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_VALUES
+}
+
+function saveSettings(values: PasswordFormModel) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(values))
+}
+
+function generatePassword(config: PasswordFormModel): string {
+  const activeGroups = (Object.keys(GROUPS) as GroupKey[]).filter(k => config[k])
+  if (activeGroups.length === 0) return ''
+
+  const pool = activeGroups.flatMap(k => GROUPS[k])
+  const length = Number(config.passwordLength)
+
+  // Keep regenerating until every active group is represented
+  for (;;) {
+    const chars = Array.from({ length }, () => pool[Math.floor(Math.random() * pool.length)])
+    const valid = activeGroups.every(group =>
+      chars.some(c => (GROUPS[group] as string[]).includes(c))
+    )
+    if (valid) return chars.join('')
+  }
+}
+
+function generatePasswords(config: PasswordFormModel): string[] {
+  return Array.from({ length: PASSWORDS_COUNT }, () => generatePassword(config))
+}
+
+/** Entropy in bits: length * log2(poolSize), capped for display purposes */
+function calcEntropy(config: PasswordFormModel): number {
+  const activeGroups = (Object.keys(GROUPS) as GroupKey[]).filter(k => config[k])
+  const poolSize = activeGroups.reduce((sum, k) => sum + GROUPS[k].length, 0)
+  if (poolSize === 0) return 0
+  return Number(config.passwordLength) * Math.log2(poolSize)
+}
+
+/** Returns a CSS color string on red→yellow→green gradient, 0..128 bits → 0..100% */
+function entropyColor(bits: number): string {
+  const pct = Math.min(bits / 128, 1) // 128 bits = full green
+  // interpolate HSL: 0 (red) → 120 (green)
+  const hue = Math.round(pct * 120)
+  return `hsl(${hue}, 80%, 42%)`
+}
+
+function StrengthBar({ config }: { config: PasswordFormModel }) {
+  const bits = calcEntropy(config)
+  const pct = Math.min((bits / 128) * 100, 100)
+  const color = entropyColor(bits)
+
+  return (
+    <Box sx={{ mt: 0.5 }}>
+      <LinearProgress
+        variant="determinate"
+        value={pct}
+        sx={{
+          height: 6,
+          borderRadius: 3,
+          bgcolor: 'grey.200',
+          '& .MuiLinearProgress-bar': { bgcolor: color, borderRadius: 3 },
+        }}
+      />
+      <Typography variant="caption" sx={{ color }}>
+        Quality: {Math.round(bits)} bits
+      </Typography>
+    </Box>
+  )
+}
 
 export default function PasswordForm() {
-
-  const {
-    register,
-    handleSubmit,
-    getValues,
-    watch,
-    formState: { errors },
-  } = useForm<PasswordFormModel>({
-    defaultValues: {
-      passwordLength: 16,
-      useLowerCase: true,
-      useUpperCase: true,
-      useDigits: true,
-      useSpecial: false,
-    }
-  });
+  const { control, handleSubmit, getValues, watch, reset } = useForm<PasswordFormModel>({
+    defaultValues: loadSettings(),
+  })
 
   const [passwords, setPasswords] = useState<string[]>([])
+  const [copiedPasswords, setCopiedPasswords] = useState<Record<string, boolean>>({})
 
-  const passwordsCount = 5;
-  // [...new Array(26)].map((x,index) => String.fromCharCode('a'.charCodeAt(0)+index)).join('')  
-  const lowerCaseSymbols: string[] = 'abcdefghijklmnopqrstuvwxyz'.split('');
-  const upperCaseSymbols: string[] = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-  const digitSymbols: string[] = '0123456789'.split('');
-  const specialSymbols: string[] = '!@#$%^&*()_+=-|\\/{}[]<>'.split('');
+  const updatePasswords = () => setPasswords(generatePasswords(getValues()))
 
-  const generatePasswords = (config: PasswordFormModel): string[] => {
-    const allowedSymbols = [
-      ...(config.useLowerCase ? lowerCaseSymbols : []),
-      ...(config.useUpperCase ? upperCaseSymbols : []),
-      ...(config.useDigits ? digitSymbols : []),
-      ...(config.useSpecial ? specialSymbols : []),
-    ]
-
-    const newPasswords =
-      [...new Array(passwordsCount)]
-        .map(_ => {
-          const symbols = [...new Array(Number(config.passwordLength))]
-            .map(_ => allowedSymbols[Math.floor(Math.random() * allowedSymbols.length)]);
-
-          return symbols.join('');
-        })
-
-    return newPasswords;
-  }
-
-  const updatePasswords = () => {
-    setPasswords(generatePasswords(getValues()));
-  }
+  // Restore settings on mount (in case of first render with localStorage values)
+  useEffect(() => {
+    reset(loadSettings())
+  }, [])
 
   useEffect(() => {
-    const subscription = watch((data, { name, type }) => {
-      updatePasswords();
+    const subscription = watch((values) => {
+      saveSettings(values as PasswordFormModel)
+      updatePasswords()
     })
-    updatePasswords();
-    return () => subscription.unsubscribe();
+    updatePasswords()
+    return () => subscription.unsubscribe()
   }, [watch])
 
-  const passwordLength = watch("passwordLength");
+  const formValues = watch()
+  const passwordLength = formValues.passwordLength
 
-  const [copiedPasswords, setCopiedPasswords] = useState<any>({})
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedPasswords((prev: any) => {
-      let newValue = {
-        ...prev
-      };
-      newValue[text] = true;
-      return newValue;
-    });
+    navigator.clipboard.writeText(text)
+    setCopiedPasswords((prev) => ({ ...prev, [text]: true }))
     setTimeout(() => {
-      setCopiedPasswords((prev: any) => {
-        let newValue = {
-          ...prev
-        };
-        delete newValue[text];
-        return newValue;
-      });
-    }, 2000);
+      setCopiedPasswords((prev) => {
+        const next = { ...prev }
+        delete next[text]
+        return next
+      })
+    }, 2000)
   }
 
   return (
-    <div className="container" style={{ maxWidth: '720px' }}>
-      <form onSubmit={handleSubmit(updatePasswords)}>
-        <h1 className="my-4">Password generator</h1>
-        <div className="mb-3">
-          <label htmlFor="passwordLength" className="form-label">Length: {passwordLength}</label>
-          <input {...register('passwordLength')} type="range" min="8" max="32" className="form-range" id="passwordLength" />
-        </div>
-        <div className="mb-3 form-check">
-          <input {...register('useLowerCase')} type="checkbox" className="form-check-input" id="useLowerCase" />
-          <label className="form-check-label" htmlFor="useLowerCase">Lower-case symbols: a-z</label>
-        </div>
-        <div className="mb-3 form-check">
-          <input {...register('useUpperCase')} type="checkbox" className="form-check-input" id="useUpperCase" />
-          <label className="form-check-label" htmlFor="useUpperCase">Upper-case symbols: A-Z</label>
-        </div>
-        <div className="mb-3 form-check">
-          <input {...register('useDigits')} type="checkbox" className="form-check-input" id="useDigits" />
-          <label className="form-check-label" htmlFor="useDigits">Digits: 0-9</label>
-        </div>
-        <div className="mb-3 form-check">
-          <input {...register('useSpecial')} type="checkbox" className="form-check-input" id="useSpecial" />
-          <label className="form-check-label" htmlFor="useSpecial">Special symbols: {'!@#$%^&*()_+=-|\\/{}[]<>'}</label>
-        </div>
-        <button type="submit" className="btn btn-primary">Generate</button>
+    <Container maxWidth="sm">
+      <Box component="form" onSubmit={handleSubmit(updatePasswords)} sx={{ py: 4 }}>
+        <Typography variant="h4" gutterBottom>Password generator</Typography>
 
-        <ul className="list-group mt-3">
-          {
-            passwords.map((x, index) =>
-              <li key={index} className="list-group-item">
-                <span>{x}</span>
-                {
-                  copiedPasswords[x]
-                    ?
-                    <button type="button"
-                      className="btn btn-sm btn-success ms-2">
-                      Copied
-                    </button>
-                    : <button type="button"
-                      className="btn btn-sm btn-primary ms-2"
-                      onClick={() => copyToClipboard(x)} >
-                      Copy
-                    </button>
-                }
-              </li>
-            )
-          }
-        </ul>
-      </form>
-    </div>
-  );
-}
+        <Box sx={{ mb: 3 }}>
+          <Typography gutterBottom>Length: {passwordLength}</Typography>
+          <Controller
+            name="passwordLength"
+            control={control}
+            render={({ field }) => (
+              <Slider
+                {...field}
+                min={8}
+                max={40}
+                valueLabelDisplay="auto"
+                onChange={(_: Event, value: number | number[]) => field.onChange(value)}
+              />
+            )}
+          />
+        </Box>
 
-type PasswordFormModel = {
-  passwordLength: number;
-  useLowerCase: boolean;
-  useUpperCase: boolean;
-  useDigits: boolean;
-  useSpecial: boolean;
+        <Stack sx={{ mb: 2 }}>
+          {([
+            ['useLowerCase', 'Lower-case symbols: a-z'],
+            ['useUpperCase', 'Upper-case symbols: A-Z'],
+            ['useDigits', 'Digits: 0-9'],
+            ['useSpecial', 'Special symbols: !@#$%^&*()_+=-|\\/{}[]<>'],
+          ] as const).map(([name, label]) => (
+            <Controller
+              key={name}
+              name={name}
+              control={control}
+              render={({ field }) => (
+                <FormControlLabel
+                  control={<Checkbox {...field} checked={field.value} />}
+                  label={label}
+                />
+              )}
+            />
+          ))}
+        </Stack>
+
+        <Button type="submit" variant="contained">Generate</Button>
+
+        <List sx={{ mt: 2 }}>
+          {passwords.map((pwd, index) => (
+            <ListItem
+              key={index}
+              sx={{ flexDirection: 'column', alignItems: 'stretch', py: 1.5 }}
+              divider
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, alignItems: 'center' }}>
+                <Typography fontFamily="monospace" sx={{ wordBreak: 'break-all', flexGrow: 1 }}>
+                  {pwd}
+                </Typography>
+                <Button
+                  size="small"
+                  variant={copiedPasswords[pwd] ? 'outlined' : 'contained'}
+                  color={copiedPasswords[pwd] ? 'success' : 'primary'}
+                  startIcon={copiedPasswords[pwd] ? <CheckIcon /> : <ContentCopyIcon />}
+                  onClick={() => copyToClipboard(pwd)}
+                  sx={{ whiteSpace: 'nowrap', minWidth: 90, flexShrink: 0 }}
+                >
+                  {copiedPasswords[pwd] ? 'Copied' : 'Copy'}
+                </Button>
+              </Box>
+              <StrengthBar config={formValues} />
+            </ListItem>
+          ))}
+        </List>
+      </Box>
+    </Container>
+  )
 }
